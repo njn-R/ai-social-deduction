@@ -26,7 +26,9 @@ export type ClientMessage =
   /** The browser is behind on reading AI lines aloud (on), or ready for the next line (off). */
   | { type: 'speaking'; on: boolean }
   /** Whether AI lines are being read aloud at all (voices on and loaded). */
-  | { type: 'voice'; on: boolean };
+  | { type: 'voice'; on: boolean }
+  /** Done reading the role screen: start the game now. */
+  | { type: 'ready' };
 
 /** Server -> browser. Only ever what the human player is allowed to know. */
 export type ServerMessage =
@@ -40,4 +42,6 @@ export type ServerMessage =
   | { type: 'game_over'; result: GameResult; roles: Record<PlayerId, Role>; reveal: string }
   /** A new game was started from another tab or window; this one should go quiet. */
   | { type: 'taken' }
+  /** The game is paused for this long so you can see your role; send 'ready' to start sooner. */
+  | { type: 'intro'; seconds: number }
   | { type: 'error'; message: string };

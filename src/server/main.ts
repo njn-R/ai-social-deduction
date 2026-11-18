@@ -26,9 +26,14 @@ const { values } = parseArgs({
     concurrency: { type: 'string', default: '4' },
     // End games after this many minutes (default: the rules' 20-minute limit). Handy for testing.
     'max-minutes': { type: 'string' },
+    // Meeting discussion length in seconds (default 120 with a human). Handy for testing votes.
+    discussion: { type: 'string' },
   },
 });
-const maxGameSec = values['max-minutes'] ? Number(values['max-minutes']) * 60 : undefined;
+const testConfig = {
+  ...(values['max-minutes'] ? { maxGameSec: Number(values['max-minutes']) * 60 } : {}),
+  ...(values.discussion ? { discussionSec: Number(values.discussion) } : {}),
+};
 
 const local = loadLocalConfig();
 let provider: LlmProvider;
@@ -109,7 +114,7 @@ wss.on('connection', (ws: WebSocket) => {
         role: msg.role === 'crew' || msg.role === 'saboteur' ? msg.role : 'random',
         seed: Math.floor(Math.random() * 1_000_000),
         concurrency: Number(values.concurrency),
-        ...(maxGameSec ? { config: { maxGameSec } } : {}),
+        config: testConfig,
         send,
       });
       owner = ws;

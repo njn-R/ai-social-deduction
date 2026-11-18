@@ -5,8 +5,8 @@ import { Hud } from './hud';
 import { MeetingView } from './meeting';
 import { Renderer } from './render';
 import { el } from './dom';
-import { Banner, GameOver, Lobby, Toasts } from './screens';
-import { nameOf, newState, setMap } from './state';
+import { GameOver, Intro, Lobby, Toasts } from './screens';
+import { newState, setMap } from './state';
 import { describeVoices, Voices } from './voice';
 import './style.css';
 
@@ -28,7 +28,23 @@ const voicePref = (() => {
     return true;
   }
 })();
-const voices = new Voices(voicePref);
+const ENGINE_KEY = 'deep-station:voice-engine';
+const cpuPref = (() => {
+  try {
+    return localStorage.getItem(ENGINE_KEY) === 'cpu';
+  } catch {
+    return false;
+  }
+})();
+const voices = new Voices(voicePref, cpuPref);
+function setCpuOnly(cpu: boolean): void {
+  voices.setPreferCpu(cpu);
+  try {
+    localStorage.setItem(ENGINE_KEY, cpu ? 'cpu' : 'auto');
+  } catch {
+    // not remembered; fine
+  }
+}
 const muteButton = el('button', { class: 'mute', type: 'button', onclick: () => toggleVoices(!voices.enabled) });
 function toggleVoices(on: boolean): void {
   voices.setEnabled(on);
@@ -68,20 +84,27 @@ const start = (name: string, role: RoleChoice) => {
   send({ type: 'start', name, role });
 };
 
-const lobby = new Lobby(start, { on: voicePref, onToggle: toggleVoices, rate: voices.rate, onRate: setRate });
-const hud = new Hud(s);
+const lobby = new Lobby(start, {
+  on: voicePref,
+  onToggle: toggleVoices,
+  rate: voices.rate,
+  onRate: setRate,
+  cpu: cpuPref,
+  onCpu: setCpuOnly,
+  onTest: () => voices.test({ kokoro: 'af_heart', speed: 1 }),
+});
+const hud = new Hud(s, (action) => send({ type: 'act', action }));
 const meeting = new MeetingView(s, send, (key) => voices.owns(key));
 meeting.setControls(muteButton);
 voices.onSpoken = (sp) => meeting.addSpoken(sp);
 voices.onLineDone = (key, spoke) => meeting.lineDone(key, spoke);
 voices.onStatus();
-const banner = new Banner();
+const intro = new Intro(() => send({ type: 'ready' }));
 const toasts = new Toasts();
 const gameOver = new GameOver(() => lastStart && start(lastStart.name, lastStart.role));
-app.append(hud.root, meeting.root, banner.root, toasts.root, gameOver.root, lobby.root);
+app.append(hud.root, meeting.root, toasts.root, gameOver.root, intro.root, lobby.root);
 const renderer = new Renderer(canvas, s);
 
-let announced = false;
 let lastPhase = '';
 // Meeting lines already handed to the voice player.
 let spokenMeeting = -1;
@@ -101,20 +124,13 @@ ws.addEventListener('message', (ev) => {
       send({ type: 'voice', on: voices.ready });
       spokenMeeting = -1;
       spokenLines = 0;
-      announced = false;
       lobby.setVisible(false);
       gameOver.close();
       break;
     case 'obs':
       s.obs = msg.obs;
       s.obsAt = performance.now();
-      if (!announced) {
-        announced = true;
-        const me = msg.obs.self;
-        const partner = msg.obs.saboteurTeam.map((id) => nameOf(s, id)).join(' and ');
-        if (me.role === 'saboteur') banner.flash('You are a SABOTEUR', `With ${partner}. Kill when nobody's watching, fake your tasks, and lie well.`, 'saboteur');
-        else banner.flash('You are CREW', 'Finish your tasks, report bodies, and vote out the 2 saboteurs.', 'crew');
-      }
+      if (msg.obs.tick > 0 && intro.open) intro.close(); // the game has started
       if (msg.obs.phase !== lastPhase) {
         if (msg.obs.phase === 'meeting') releaseKeys();
         if (lastPhase === 'meeting') voices.stop();
@@ -123,6 +139,9 @@ ws.addEventListener('message', (ev) => {
       speakNewLines();
       hud.update();
       meeting.update();
+      break;
+    case 'intro':
+      intro.show(s, msg.seconds);
       break;
     case 'typing':
       if (msg.on) s.typing.set(msg.playerId, performance.now() + 30_000);

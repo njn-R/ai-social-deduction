@@ -47,6 +47,18 @@ describe('GameSession', () => {
     }
   });
 
+  it('holds the game still while the human reads their role, and Ready starts it early', async () => {
+    const { s, sent } = session({ mode: 'realtime' });
+    s.run(5);
+    expect(sent.map((m) => m.type)).toEqual(['obs', 'intro']);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(s.game.tick).toBe(0);
+    s.handle({ type: 'ready' });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(s.game.tick).toBeGreaterThan(0);
+    s.stop();
+  });
+
   it('moves the human from keyboard input', async () => {
     const { s } = session();
     const before = { ...s.game.player(HUMAN_ID).pos };

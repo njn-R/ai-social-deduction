@@ -1,7 +1,7 @@
 import type { PlayerId } from '../../src/engine';
 import type { ClientMessage } from '../../src/shared/protocol';
 import { hex } from './colors';
-import { el, kids, show } from './dom';
+import { el, show } from './dom';
 import { colorOf, nameOf, type ClientState } from './state';
 import type { Spoken } from './voice';
 
@@ -40,6 +40,11 @@ export class MeetingView {
   private shownLines = 0;
   private lastTypingPing = 0;
   private readonly reveals = new Map<string, Reveal>();
+  private readonly cards = new Map<PlayerId, { root: HTMLElement; voted: HTMLElement; dead: HTMLElement; vote: HTMLButtonElement }>();
+  private readonly skip = el('button', { class: 'vote skip', type: 'button', onclick: () => this.vote('skip') }, 'Skip vote');
+  private readonly yourVote = el('div', { class: 'your-vote' });
+  /** When a vote was last sent; buttons pause briefly so one click can't vote twice. */
+  private voteSentAt = -Infinity;
 
   constructor(
     private readonly s: ClientState,
@@ -102,6 +107,8 @@ export class MeetingView {
       this.shownLines = 0;
       this.log.replaceChildren();
       this.reveals.clear();
+      this.cards.clear();
+      this.voteSentAt = -Infinity;
     }
     const area = m.bodyAreaId && s.nav ? s.nav.area(m.bodyAreaId).name : 'somewhere';
     this.title.textContent =
@@ -111,32 +118,27 @@ export class MeetingView {
     const stage = m.stage === 'discussion' ? 'Discussion' : m.stage === 'voting' ? 'Voting' : 'Result';
     this.timer.textContent = m.stage === 'result' ? stage : `${stage} · ${Math.ceil(m.secLeft)}s`;
 
-    // Players and votes.
+    // Players and votes. The cards are built once per meeting and updated in place:
+    // rebuilding them on every update (20 a second) swapped the Vote buttons out from under
+    // the mouse mid-click, so clicks never landed.
     const me = obs.self;
+    if (this.cards.size === 0) this.buildCards(obs.roster);
+    const sending = performance.now() - this.voteSentAt < 1500;
     const canVote = m.stage === 'voting' && me.alive && m.participants.includes(me.id) && m.myVote === null;
-    const card = (id: PlayerId) => {
-      const r = obs.roster.find((x) => x.id === id)!;
-      const alive = m.participants.includes(id);
-      const voted = m.voted.includes(id);
-      const mine = m.myVote === id;
-      const vote = canVote && alive ? el('button', { class: 'vote', onclick: () => this.vote(id) }, 'Vote') : null;
-      return el(
-        'div',
-        { class: `card${alive ? '' : ' gone'}${mine ? ' picked' : ''}` },
-        el('span', { class: 'dot', style: `background:${hex(r.color)}` }),
-        el('span', { class: 'name' }, id === s.you ? `${r.name} (you)` : r.name),
-        voted ? el('span', { class: 'badge' }, 'voted') : null,
-        !alive ? el('span', { class: 'badge dead' }, 'dead') : null,
-        vote,
-      );
-    };
-    this.players.replaceChildren(
-      ...kids(
-        ...obs.roster.map((r) => card(r.id)),
-        canVote ? el('button', { class: 'vote skip', onclick: () => this.vote('skip') }, 'Skip vote') : null,
-        m.myVote ? el('div', { class: 'your-vote' }, `You voted: ${m.myVote === 'skip' ? 'skip' : nameOf(s, m.myVote)}`) : null,
-      ),
-    );
+    for (const r of obs.roster) {
+      const c = this.cards.get(r.id);
+      if (!c) continue;
+      const alive = m.participants.includes(r.id);
+      c.root.classList.toggle('gone', !alive);
+      c.root.classList.toggle('picked', m.myVote === r.id);
+      show(c.voted, m.voted.includes(r.id));
+      show(c.dead, !alive);
+      show(c.vote, canVote && alive);
+      c.vote.disabled = sending;
+    }
+    show(this.skip, canVote);
+    this.skip.disabled = sending;
+    this.yourVote.textContent = m.myVote ? `You voted: ${m.myVote === 'skip' ? 'skip' : nameOf(s, m.myVote)}` : '';
 
     // New chat lines. Yours appear at once; the AIs' are revealed word by word in tick().
     m.chat.slice(this.shownLines).forEach((c, i) => {
@@ -234,7 +236,29 @@ export class MeetingView {
     return r.full;
   }
 
+  private buildCards(roster: { id: PlayerId; name: string; color: string }[]): void {
+    const nodes: HTMLElement[] = [];
+    for (const r of roster) {
+      const voted = el('span', { class: 'badge hidden' }, 'voted');
+      const dead = el('span', { class: 'badge dead hidden' }, 'dead');
+      const vote = el('button', { class: 'vote hidden', type: 'button', onclick: () => this.vote(r.id) }, 'Vote');
+      const root = el(
+        'div',
+        { class: 'card' },
+        el('span', { class: 'dot', style: `background:${hex(r.color)}` }),
+        el('span', { class: 'name' }, r.id === this.s.you ? `${r.name} (you)` : r.name),
+        voted,
+        dead,
+        vote,
+      );
+      this.cards.set(r.id, { root, voted, dead, vote });
+      nodes.push(root);
+    }
+    this.players.replaceChildren(...nodes, this.skip, this.yourVote);
+  }
+
   private vote(target: PlayerId | 'skip'): void {
+    this.voteSentAt = performance.now();
     this.send({ type: 'act', action: { type: 'vote', target } });
   }
 }

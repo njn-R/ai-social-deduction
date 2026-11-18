@@ -29,10 +29,35 @@ export class Lobby {
     el('option', { value: '1.3' }, 'Fastest'),
   );
 
+  private readonly voiceEngine = el('select', {}, el('option', { value: 'auto' }, 'Auto (GPU if it works)'), el('option', { value: 'cpu' }, 'CPU only'));
+  private readonly voiceTest: HTMLButtonElement;
+
   constructor(
     onStart: (name: string, role: RoleChoice) => void,
-    voice: { on: boolean; onToggle: (on: boolean) => void; rate: number; onRate: (rate: number) => void },
+    voice: {
+      on: boolean;
+      onToggle: (on: boolean) => void;
+      rate: number;
+      onRate: (rate: number) => void;
+      cpu: boolean;
+      onCpu: (cpu: boolean) => void;
+      /** Play a sample line; returns false if voices aren't ready yet. */
+      onTest: () => boolean;
+    },
   ) {
+    this.voiceTest = el(
+      'button',
+      {
+        type: 'button',
+        class: 'secondary',
+        onclick: () => {
+          if (!voice.onTest()) this.voiceStatus.textContent = 'Voices are still loading (or switched off).';
+        },
+      },
+      'Test voice',
+    );
+    this.voiceEngine.value = voice.cpu ? 'cpu' : 'auto';
+    this.voiceEngine.addEventListener('change', () => voice.onCpu(this.voiceEngine.value === 'cpu'));
     this.voiceBox.checked = voice.on;
     this.voiceBox.addEventListener('change', () => voice.onToggle(this.voiceBox.checked));
     this.voiceRate.value = String(voice.rate);
@@ -55,7 +80,8 @@ export class Lobby {
       el('label', {}, 'Role', this.role),
       el('label', { class: 'check' }, this.voiceBox, 'Read AI lines aloud (voices run in your browser)'),
       el('label', {}, 'Voice speed', this.voiceRate),
-      this.voiceStatus,
+      el('label', {}, 'Voice engine', this.voiceEngine),
+      el('div', { class: 'voice-row' }, this.voiceStatus, this.voiceTest),
       this.start,
       this.status,
       el('div', { class: 'keys' }, ...KEYS.map(([k, v]) => el('div', {}, el('kbd', {}, k), ` ${v}`))),
@@ -83,16 +109,58 @@ export class Lobby {
   }
 }
 
-/** Big centred message, e.g. your role at the start. */
-export class Banner {
-  readonly root = el('div', { class: 'banner hidden' });
+/** Role reveal before play starts: who you are, what to do, and the controls. */
+export class Intro {
+  readonly root = el('div', { class: 'overlay intro hidden' });
   private timer = 0;
 
-  flash(title: string, sub: string, kind: string, ms = 3800): void {
-    this.root.className = `banner ${kind}`;
-    this.root.replaceChildren(el('div', { class: 'big' }, title), el('div', {}, sub));
-    clearTimeout(this.timer);
-    this.timer = window.setTimeout(() => show(this.root, false), ms);
+  constructor(private readonly onReady: () => void) {}
+
+  get open(): boolean {
+    return !this.root.classList.contains('hidden');
+  }
+
+  show(s: ClientState, seconds: number): void {
+    const me = s.obs!.self;
+    const sab = me.role === 'saboteur';
+    const partner = s.obs!.saboteurTeam.map((id) => nameOf(s, id)).join(' and ');
+    let left = seconds;
+    const count = el('strong', {}, String(left));
+    const ready = el('button', { type: 'button', onclick: () => this.ready() }, 'Ready');
+    const keys = KEYS.filter(([k]) => sab || k !== 'Q');
+    this.root.replaceChildren(
+      el(
+        'div',
+        { class: `panel intro-panel ${me.role}` },
+        el('div', { class: 'intro-kicker' }, 'Your role'),
+        el('h1', {}, sab ? 'SABOTEUR' : 'CREW'),
+        sab
+          ? el('p', { class: 'intro-goal' }, 'Kill crew when nobody is watching, fake your tasks to blend in, and lie well in meetings. You win when the saboteurs equal the crew.')
+          : el('p', { class: 'intro-goal' }, 'Two saboteurs are hiding among the crew. Finish your tasks, report bodies, and vote the saboteurs out.'),
+        sab && partner ? el('p', { class: 'intro-partner' }, 'Your partner: ', el('strong', {}, partner)) : el('p', { class: 'intro-partner' }, 'Trust carefully. Anyone could be lying.'),
+        el('p', { class: 'intro-tip' }, sab ? 'Your fake tasks are the yellow squares on the map.' : 'Your tasks are the yellow squares on the map.'),
+        el('div', { class: 'keys' }, ...keys.map(([k, v]) => el('div', {}, el('kbd', {}, k), ` ${v}`))),
+        el('div', { class: 'intro-foot' }, el('span', {}, 'Starting in ', count, 's'), ready),
+      ),
+    );
+    show(this.root, true);
+    setTimeout(() => ready.focus(), 50);
+    clearInterval(this.timer);
+    this.timer = window.setInterval(() => {
+      left = Math.max(0, left - 1);
+      count.textContent = String(left);
+      if (left === 0) this.close();
+    }, 1000);
+  }
+
+  close(): void {
+    clearInterval(this.timer);
+    show(this.root, false);
+  }
+
+  private ready(): void {
+    this.close();
+    this.onReady();
   }
 }
 

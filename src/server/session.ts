@@ -12,6 +12,9 @@ import { parseHumanChat } from './humanChat';
 
 export const HUMAN_ID = 'you';
 
+/** Seconds the game waits at the start so you can read your role. */
+export const INTRO_SEC = 7;
+
 export interface SessionOptions {
   provider: LlmProvider;
   /** Label for reports. */
@@ -48,6 +51,8 @@ export class GameSession {
   private finished = false;
   private lastChatTick = -Infinity;
   private lastTypingTick = -Infinity;
+  /** Ends the role-reveal pause early (set while it's running). */
+  private endIntro: (() => void) | null = null;
   /** The browser is behind on reading AI lines aloud. */
   private speaking = false;
   /** AI lines are being read aloud, so listening (not reading) sets the pace. */
@@ -102,11 +107,22 @@ export class GameSession {
     if (g.isOver()) await this.finish();
   }
 
-  /** Start the 20-ticks-a-second loop. */
-  run(): void {
+  /**
+   * Show the human their starting view and role, wait `introSec` (or until they say they're
+   * ready), then start the 20-ticks-a-second loop. Nothing moves during the intro.
+   */
+  run(introSec = INTRO_SEC): void {
     this.running = true;
-    this.startedAt = performance.now();
+    this.o.send({ type: 'obs', obs: this.game.observe(HUMAN_ID) });
+    this.o.send({ type: 'intro', seconds: introSec });
+    const intro = new Promise<void>((resolve) => {
+      this.endIntro = resolve;
+      setTimeout(resolve, introSec * 1000);
+    });
     const loop = async () => {
+      await intro;
+      this.endIntro = null;
+      this.startedAt = performance.now();
       while (this.running && !this.game.isOver()) {
         await this.step();
         const wait = this.startedAt + (this.game.tick * 1000) / TICK_RATE - performance.now();
@@ -132,6 +148,9 @@ export class GameSession {
         if (!r.ok) this.o.send({ type: 'notice', text: r.reason });
         return;
       }
+      case 'ready':
+        this.endIntro?.();
+        return;
       case 'typing':
         this.lastTypingTick = g.tick;
         return;

@@ -14,6 +14,12 @@
       "port": 8787
     },
     {
+      "name": "game-fake-short-meetings",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "play", "--", "--fake", "--discussion", "8"],
+      "port": 8787
+    },
+    {
       "name": "game",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "play"],

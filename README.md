@@ -20,7 +20,11 @@ npm install
 npm run play                             # builds the client, then serves http://localhost:8787
 ```
 
-Open http://localhost:8787, pick a name and a role (or random), and press Start.
+Open http://localhost:8787, pick a name and a role (or random), and press Start. The game waits a
+few seconds on a role screen (your role, your partner if you're a saboteur, the controls) before
+anything moves; press **Ready** to start sooner. While playing, the buttons in the bottom-right
+corner show each key, what it would do right now, and why not when they're greyed out; they can
+be clicked too.
 
 | Key | What it does |
 |---|---|
@@ -37,8 +41,9 @@ thoughts next to what it said.
 
 **Voices:** tick "Read AI lines aloud" in the lobby (or use **Mute voices** in a meeting). Each AI
 has its own voice and speaking speed, generated in your browser by
-[Kokoro](https://npmjs.com/package/kokoro-js) on the CPU, so the GPU stays free for the
-language model. The first time, the browser downloads the ~90 MB voice model and then caches it.
+[Kokoro](https://npmjs.com/package/kokoro-js) on a background thread: on the GPU when the browser
+supports WebGPU (one-time ~330 MB download), otherwise on the CPU (~90 MB). AI lines type out word
+by word as they're spoken. Play in one tab: each open game tab loads its own voices.
 
 Without a model: `npm run play -- --fake` (canned AI lines, for trying the controls).
 

@@ -13,6 +13,14 @@ export interface Spoken {
   durationMs: number;
 }
 
+export interface VoiceCheck {
+  ok: boolean;
+  zcr: number;
+  rms: number;
+  peak: number;
+  samples: number;
+}
+
 interface Line {
   key: string;
   text: string;
@@ -22,9 +30,9 @@ interface Line {
 }
 
 /**
- * Reads AI meeting lines aloud with Kokoro. Speech is generated on a background worker (CPU,
- * WebAssembly, 8-bit model, ~90 MB downloaded once), so the game never freezes and the GPU
- * stays free for the language model. This side only plays the audio.
+ * Reads AI meeting lines aloud with Kokoro. Speech is generated on a background worker, on
+ * the GPU when the browser supports WebGPU (~330 MB model, downloaded once) or else the CPU
+ * (~90 MB), so the game never freezes. This side only plays the audio.
  *
  * Lines are voiced one at a time; each sentence is scheduled to start exactly when the
  * previous one ends, so voices never overlap. `onSpoken` reports each sentence's timing so the
@@ -40,6 +48,14 @@ export class Voices {
   error = '';
   /** User speed setting, multiplied with each persona's own speed. */
   rate = 1;
+  /** Where speech is generated: the GPU (WebGPU) or the CPU (WebAssembly). */
+  device: 'webgpu' | 'wasm' | null = null;
+  /** Why the GPU wasn't used, when it was tried and rejected. */
+  note = '';
+  /** Measurements from the start-up voice check (for diagnosing static). */
+  check: { cpu: VoiceCheck; gpu: VoiceCheck | null } | null = null;
+  /** Skip the GPU and always use the CPU. */
+  preferCpu = false;
   onStatus?: () => void;
   onBusy?: (busy: boolean) => void;
   onSpoken?: (s: Spoken) => void;
@@ -58,8 +74,26 @@ export class Voices {
   private busy = false;
   private timer: number | null = null;
 
-  constructor(public enabled: boolean) {
+  constructor(
+    public enabled: boolean,
+    preferCpu = false,
+  ) {
+    this.preferCpu = preferCpu;
     if (enabled) this.load();
+  }
+
+  /** Switch between "GPU if it works" and "CPU only"; reloads the voice engine. */
+  setPreferCpu(on: boolean): void {
+    if (on === this.preferCpu) return;
+    this.preferCpu = on;
+    this.stop();
+    this.worker?.terminate();
+    this.worker = null;
+    this.status = 'off';
+    this.device = null;
+    this.note = '';
+    if (this.enabled) this.load();
+    this.onStatus?.();
   }
 
   get ready(): boolean {
@@ -82,6 +116,12 @@ export class Voices {
     if (on) this.load();
     else this.stop();
     this.onStatus?.();
+  }
+
+  /** Play a sample line right away (lobby "Test voice" button). */
+  test(spec: VoiceSpec): boolean {
+    this.unlock();
+    return this.say(`test:${performance.now()}`, 'Hello! This is how I sound. Do I sound clear to you?', spec);
   }
 
   /** Queue a line to be read aloud. Returns false if voices can't take it (off or still loading). */
@@ -124,17 +164,36 @@ export class Voices {
       this.error = e.message || 'voice worker crashed';
       this.onStatus?.();
     };
-    this.worker.postMessage({ type: 'load' });
+    this.worker.postMessage({ type: 'load', preferCpu: this.preferCpu });
   }
 
-  private onWorker(msg: { type: string; id?: string; text?: string; audio?: Float32Array; rate?: number; progress?: number; message?: string }): void {
+  private onWorker(msg: {
+    type: string;
+    id?: string;
+    text?: string;
+    audio?: Float32Array;
+    rate?: number;
+    progress?: number;
+    message?: string;
+    device?: 'webgpu' | 'wasm';
+    note?: string;
+    check?: Voices['check'];
+  }): void {
     switch (msg.type) {
+      case 'device':
+        this.device = msg.device ?? null;
+        this.onStatus?.();
+        return;
       case 'progress':
         this.progress = msg.progress ?? 0;
         this.onStatus?.();
         return;
       case 'ready':
         this.status = 'ready';
+        this.device = msg.device ?? this.device;
+        this.note = msg.note ?? '';
+        this.check = msg.check ?? null;
+        console.info('Voices ready', { device: this.device, check: this.check, note: this.note });
         this.onStatus?.();
         return;
       case 'error':
@@ -210,11 +269,18 @@ export class Voices {
 
 export function describeVoices(v: Voices): string {
   if (!v.enabled) return 'Voices off';
+  const gpu = v.device === 'webgpu';
   switch (v.status) {
     case 'loading':
-      return `Loading voices... ${v.progress}% (one-time ~90 MB download)`;
+      return `Loading voices${v.device ? (gpu ? ' for the GPU' : ' for the CPU') : ''}... ${v.progress}% (one-time ${gpu ? '~330' : '~90'} MB download)`;
     case 'ready':
-      return `Voices ready${crossOriginIsolated ? '' : ' (single-threaded: may lag)'}`;
+      if (gpu) return 'Voices ready (GPU, checked against the CPU voice)';
+      if (v.note) {
+        const chromium = /Chrome\/|Edg\//.test(navigator.userAgent);
+        const hint = chromium ? ' Updating your browser or graphics driver may fix it.' : ' Chrome or Edge usually run GPU voices fine.';
+        return `Voices ready (CPU): ${v.note}, so it switched to the CPU.${hint}`;
+      }
+      return `Voices ready (CPU${crossOriginIsolated ? '' : ', single-threaded: may lag'})`;
     case 'error':
       return `Voices failed to load: ${v.error}`;
     default:
