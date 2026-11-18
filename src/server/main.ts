@@ -62,6 +62,10 @@ const TYPES: Record<string, string> = {
 };
 
 const http = createServer((req, res) => {
+  // Cross-origin isolation lets the in-browser voice engine run WebAssembly on several threads
+  // (several times faster than one). "credentialless" keeps cross-origin model downloads working.
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
   const path = decodeURIComponent((req.url ?? '/').split('?')[0]);
   const file = normalize(join(ROOT, path === '/' ? 'index.html' : path));
   if (!file.startsWith(ROOT) || !existsSync(file) || !statSync(file).isFile()) {

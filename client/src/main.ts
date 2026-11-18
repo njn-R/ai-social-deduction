@@ -38,10 +38,27 @@ function toggleVoices(on: boolean): void {
     // not remembered; fine
   }
 }
-voices.onSpeaking = (on) => send({ type: 'speaking', on });
+const RATE_KEY = 'deep-station:voice-rate';
+voices.rate = (() => {
+  try {
+    return Number(localStorage.getItem(RATE_KEY)) || 1.15;
+  } catch {
+    return 1.15;
+  }
+})();
+function setRate(rate: number): void {
+  voices.rate = rate;
+  try {
+    localStorage.setItem(RATE_KEY, String(rate));
+  } catch {
+    // not remembered; fine
+  }
+}
+voices.onBusy = (busy) => send({ type: 'speaking', on: busy });
 voices.onStatus = () => {
   lobby.setVoiceStatus(describeVoices(voices));
   muteButton.textContent = voices.enabled ? 'Mute voices' : 'Unmute voices';
+  send({ type: 'voice', on: voices.ready });
 };
 
 let lastStart: { name: string; role: RoleChoice } | null = null;
@@ -51,7 +68,7 @@ const start = (name: string, role: RoleChoice) => {
   send({ type: 'start', name, role });
 };
 
-const lobby = new Lobby(start, voicePref, toggleVoices);
+const lobby = new Lobby(start, { on: voicePref, onToggle: toggleVoices, rate: voices.rate, onRate: setRate });
 const hud = new Hud(s);
 const meeting = new MeetingView(s, send);
 meeting.setControls(muteButton);
@@ -79,6 +96,7 @@ ws.addEventListener('message', (ev) => {
     case 'welcome':
       setMap(s, msg.map, msg.config, msg.you, msg.voices);
       voices.stop();
+      send({ type: 'voice', on: voices.ready });
       spokenMeeting = -1;
       spokenLines = 0;
       announced = false;

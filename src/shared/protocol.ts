@@ -23,8 +23,10 @@ export type ClientMessage =
   | { type: 'chat'; text: string }
   /** The human is typing a message (sent about once a second while they type). */
   | { type: 'typing' }
-  /** The browser started (on) or finished (off) reading AI lines aloud. */
-  | { type: 'speaking'; on: boolean };
+  /** The browser is behind on reading AI lines aloud (on), or ready for the next line (off). */
+  | { type: 'speaking'; on: boolean }
+  /** Whether AI lines are being read aloud at all (voices on and loaded). */
+  | { type: 'voice'; on: boolean };
 
 /** Server -> browser. Only ever what the human player is allowed to know. */
 export type ServerMessage =

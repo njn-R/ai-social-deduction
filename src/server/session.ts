@@ -5,7 +5,7 @@ import { buildReveal } from '../ai/reveal';
 import type { AiGameReport } from '../ai/runAiGame';
 import { buildAiTable, type AiTable } from '../ai/table';
 import type { LlmProvider } from '../ai/llm/types';
-import { HUMAN_PACING } from '../ai/director';
+import { HUMAN_PACING, VOICE_PACING } from '../ai/director';
 import { clampLength, Game, Rng, secToTicks, STATION_MAP, TICK_RATE, type GameConfig, type PlayerSetup, type Vec2 } from '../engine';
 import type { ClientMessage, RoleChoice, ServerMessage } from '../shared/protocol';
 import { parseHumanChat } from './humanChat';
@@ -48,8 +48,10 @@ export class GameSession {
   private finished = false;
   private lastChatTick = -Infinity;
   private lastTypingTick = -Infinity;
-  /** The browser is reading AI lines aloud. */
+  /** The browser is behind on reading AI lines aloud. */
   private speaking = false;
+  /** AI lines are being read aloud, so listening (not reading) sets the pace. */
+  private voices = false;
   private startedAt = 0;
 
   constructor(private readonly o: SessionOptions) {
@@ -74,7 +76,7 @@ export class GameSession {
       concurrency: o.concurrency,
       mode: o.mode ?? 'realtime',
       onTyping: (id, on) => o.send({ type: 'typing', playerId: id, on }),
-      pacing: HUMAN_PACING,
+      pacing: () => (this.voices ? VOICE_PACING : HUMAN_PACING),
       hold: () => this.game.tick - this.lastTypingTick < secToTicks(2.5) || this.speaking,
     });
   }
@@ -135,6 +137,10 @@ export class GameSession {
         return;
       case 'speaking':
         this.speaking = msg.on === true;
+        return;
+      case 'voice':
+        this.voices = msg.on === true;
+        if (!this.voices) this.speaking = false;
         return;
       case 'chat': {
         this.lastTypingTick = -Infinity;

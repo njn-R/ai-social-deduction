@@ -127,6 +127,19 @@ describe('meeting pacing with a human at the table', () => {
     expect(chat().length).toBe(2);
   });
 
+  it('swaps reading pauses for a short beat when lines are read aloud', async () => {
+    const line = 'A line long enough to need a moment to read it through.';
+    const { s, chat } = await meetingWith(new FakeProvider({ seed: 2, latencyMs: 300, respond: (r) => (r.schema.name === 'meeting_turn' ? speak(line) : undefined) }));
+    s.handle({ type: 'voice', on: true });
+    await ticks(s, secToTicks(15));
+    const lines = chat();
+    expect(lines.length).toBeGreaterThan(3);
+    const gaps = lines.slice(1).map((c, i) => c.tick - lines[i].tick);
+    const readingPause = secToTicks(Math.min(10, 3.5 + line.length / 20));
+    expect(Math.min(...gaps)).toBeLessThan(readingPause);
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(secToTicks(0.6));
+  });
+
   it('tells the browser how each AI sounds', () => {
     const { s } = session();
     const w = s.welcome();

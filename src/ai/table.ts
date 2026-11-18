@@ -18,8 +18,8 @@ export interface AiTableOptions {
   mode: 'virtual' | 'realtime';
   /** Called when an AI starts (true) or stops (false) composing a meeting line ("X is typing"). */
   onTyping?: (playerId: PlayerId, typing: boolean) => void;
-  /** Slow meeting talk to reading speed (games with a human). */
-  pacing?: Pacing | null;
+  /** Slow meeting talk for a human (games with a human); a function can change it mid-game. */
+  pacing?: Pacing | null | (() => Pacing | null);
   /** True while the next AI line should wait (human typing, a line being spoken). */
   hold?: () => boolean;
 }

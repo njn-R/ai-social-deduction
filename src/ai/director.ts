@@ -15,6 +15,9 @@ export interface Pacing {
 
 export const HUMAN_PACING: Pacing = { baseSec: 3.5, charsPerSec: 20, maxSec: 10, holdMaxSec: 20 };
 
+/** When lines are read aloud, listening sets the pace: just a short beat between speakers. */
+export const VOICE_PACING: Pacing = { baseSec: 0.6, charsPerSec: Infinity, maxSec: 0.6, holdMaxSec: 25 };
+
 export interface DirectorOptions {
   /** Most lines one player gets per meeting. */
   maxTurns: number;
@@ -22,8 +25,11 @@ export interface DirectorOptions {
   minSecLeft: number;
   /** Called when an AI starts (true) and stops (false) composing a line, for a "typing..." indicator. */
   onTyping?: (playerId: PlayerId, typing: boolean) => void;
-  /** Slow the conversation to reading speed (games with a human). Null = post as soon as ready. */
-  pacing?: Pacing | null;
+  /**
+   * Slow the conversation for a human (games with a human). Null = post as soon as ready.
+   * A function is asked each time, so pacing can change mid-game (e.g. voices switched on).
+   */
+  pacing?: Pacing | null | (() => Pacing | null);
   /** True while the next line should wait: a human is typing, or a line is still being read aloud. */
   hold?: () => boolean;
 }
@@ -99,8 +105,13 @@ export class MeetingDirector {
       }
       this.held = { id: pick.id, turn, heardUpTo };
       this.holdingSince = null;
-      if (!this.opts.pacing) this.releaseHeld(now);
+      if (!this.pacing()) this.releaseHeld(now);
     });
+  }
+
+  private pacing(): Pacing | null {
+    const p = this.opts.pacing;
+    return typeof p === 'function' ? p() : (p ?? null);
   }
 
   /**
@@ -110,7 +121,7 @@ export class MeetingDirector {
    */
   private releaseHeld(m: MeetingState): boolean {
     const held = this.held!;
-    const pacing = this.opts.pacing;
+    const pacing = this.pacing();
     if (pacing) {
       const missed = m.chat.slice(held.heardUpTo).some((c) => !this.agents.has(c.playerId));
       if (missed) {

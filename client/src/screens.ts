@@ -21,10 +21,23 @@ export class Lobby {
   private readonly start = el('button', { type: 'submit', disabled: true }, 'Start game');
   private readonly voiceBox = el('input', { type: 'checkbox' });
   private readonly voiceStatus = el('div', { class: 'status' });
+  private readonly voiceRate = el(
+    'select',
+    {},
+    el('option', { value: '1' }, 'Normal'),
+    el('option', { value: '1.15' }, 'Faster'),
+    el('option', { value: '1.3' }, 'Fastest'),
+  );
 
-  constructor(onStart: (name: string, role: RoleChoice) => void, voicesOn: boolean, onVoiceToggle: (on: boolean) => void) {
-    this.voiceBox.checked = voicesOn;
-    this.voiceBox.addEventListener('change', () => onVoiceToggle(this.voiceBox.checked));
+  constructor(
+    onStart: (name: string, role: RoleChoice) => void,
+    voice: { on: boolean; onToggle: (on: boolean) => void; rate: number; onRate: (rate: number) => void },
+  ) {
+    this.voiceBox.checked = voice.on;
+    this.voiceBox.addEventListener('change', () => voice.onToggle(this.voiceBox.checked));
+    this.voiceRate.value = String(voice.rate);
+    if (this.voiceRate.selectedIndex < 0) this.voiceRate.value = '1.15';
+    this.voiceRate.addEventListener('change', () => voice.onRate(Number(this.voiceRate.value)));
     const form = el(
       'form',
       {
@@ -41,6 +54,7 @@ export class Lobby {
       el('label', {}, 'Name', this.name),
       el('label', {}, 'Role', this.role),
       el('label', { class: 'check' }, this.voiceBox, 'Read AI lines aloud (voices run in your browser)'),
+      el('label', {}, 'Voice speed', this.voiceRate),
       this.voiceStatus,
       this.start,
       this.status,
