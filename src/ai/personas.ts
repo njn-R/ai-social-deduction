@@ -1,5 +1,6 @@
 import type { Aggression, PlayPolicy } from '../bots/reflexes';
 import { DEFAULT_POLICY } from '../bots/reflexes';
+import type { VoiceSpec } from '../shared/protocol';
 import type { Tier } from './tiers';
 
 /** 0..1 sliders that shape both how a persona talks and how it plays. */
@@ -24,6 +25,8 @@ export interface Persona {
   sampleLines: string[];
   asCrew: string;
   asSaboteur: string;
+  /** How they sound when lines are read aloud (text-to-speech). */
+  speech: VoiceSpec;
 }
 
 export const CAST: Persona[] = [
@@ -35,6 +38,7 @@ export const CAST: Persona[] = [
     sampleLines: ['One: Vex was in Sonar at 0:45. Two: the body was in the Galley at 0:50. Curious.'],
     asCrew: 'Builds timelines, asks pointed questions, slow to vote.',
     asSaboteur: 'Frames whoever has the weakest alibi and offers a tidy, fake timeline.',
+    speech: { kokoro: 'bm_george', speed: 0.95 },
   },
   {
     id: 'ivy', name: 'Ivy', color: 'pink', tier: 'mastermind', archetype: 'charming strategist',
@@ -44,6 +48,7 @@ export const CAST: Persona[] = [
     sampleLines: ['I hear you, Duke, but think about it: who actually had time to get to the Lab?'],
     asCrew: 'Builds alliances, draws out the quiet ones, votes with the evidence.',
     asSaboteur: 'Befriends the sharpest crew member, then quietly turns the group against them.',
+    speech: { kokoro: 'af_heart', speed: 1 },
   },
   {
     id: 'whisper', name: 'Whisper', color: 'purple', tier: 'sharp', archetype: 'quiet loner',
@@ -53,6 +58,7 @@ export const CAST: Persona[] = [
     sampleLines: ['vex walked out of the galley right before. just saying.'],
     asCrew: 'Watches, says little, then drops one damning observation.',
     asSaboteur: 'Stays quiet while others argue, and only speaks to plant one small doubt.',
+    speech: { kokoro: 'af_nicole', speed: 0.95 },
   },
   {
     id: 'vex', name: 'Vex', color: 'red', tier: 'sharp', archetype: 'loud self-appointed leader',
@@ -62,6 +68,7 @@ export const CAST: Persona[] = [
     sampleLines: ['Alright crew, listen up. Jinx, where were you? Talk.'],
     asCrew: 'Takes charge, accuses fast, pushes the vote.',
     asSaboteur: 'Takes charge so nobody questions them, and rushes votes onto easy targets.',
+    speech: { kokoro: 'am_fenrir', speed: 1.1 },
   },
   {
     id: 'nova', name: 'Nova', color: 'blue', tier: 'sharp', archetype: 'calm engineer',
@@ -71,6 +78,7 @@ export const CAST: Persona[] = [
     sampleLines: ["The Galley's two rooms from Sonar. Nobody gets there in ten seconds."],
     asCrew: 'Checks whether alibis are physically possible.',
     asSaboteur: "Uses route logic to make a crew member's story look impossible.",
+    speech: { kokoro: 'af_bella', speed: 1 },
   },
   {
     id: 'jinx', name: 'Jinx', color: 'yellow', tier: 'average', archetype: 'chaotic joker',
@@ -80,6 +88,7 @@ export const CAST: Persona[] = [
     sampleLines: ['Okay okay, hear me out: it was Duke. Why? Vibes!'],
     asCrew: 'Jokes around, throws random suspicion, sometimes votes on a whim.',
     asSaboteur: 'Hides behind the jokes. Nobody takes the clown seriously.',
+    speech: { kokoro: 'am_puck', speed: 1.15 },
   },
   {
     id: 'saint', name: 'Saint', color: 'white', tier: 'average', archetype: 'trusting peacemaker',
@@ -89,6 +98,7 @@ export const CAST: Persona[] = [
     sampleLines: ["Let's not throw Mo out on a hunch. Does anyone actually have proof?"],
     asCrew: 'Defends the accused and pushes to skip without proof.',
     asSaboteur: "Plays the innocent peacemaker and defends their partner as 'just being fair'.",
+    speech: { kokoro: 'bf_emma', speed: 0.92 },
   },
   {
     id: 'reed', name: 'Reed', color: 'green', tier: 'average', archetype: 'grumpy veteran',
@@ -98,6 +108,7 @@ export const CAST: Persona[] = [
     sampleLines: ["Of course you're blaming me. I was fixing your purifier, Vex."],
     asCrew: 'Suspicious of everyone, especially anyone who accused them.',
     asSaboteur: 'Acts offended when questioned so people back off.',
+    speech: { kokoro: 'bm_fable', speed: 0.95 },
   },
   {
     id: 'bram', name: 'Bram', color: 'lime', tier: 'average', archetype: 'eager rule-follower',
@@ -107,6 +118,7 @@ export const CAST: Persona[] = [
     sampleLines: ['Per procedure: I was in Hydroponics, then the corridor, then the alarm went off.'],
     asCrew: 'Reports facts carefully and votes with the majority if it seems fair.',
     asSaboteur: 'Hides behind procedure and recites a neat, rehearsed alibi.',
+    speech: { kokoro: 'af_aoede', speed: 1 },
   },
   {
     id: 'mo', name: 'Mo', color: 'orange', tier: 'rookie', archetype: 'anxious newbie',
@@ -116,6 +128,7 @@ export const CAST: Persona[] = [
     sampleLines: ["Um... I think I was in the, uh, Lab? Sorry, it's all a blur."],
     asCrew: 'Follows others, forgets details, panics when accused.',
     asSaboteur: 'Panics and over-explains, which makes them look guilty.',
+    speech: { kokoro: 'af_kore', speed: 1.12 },
   },
   {
     id: 'duke', name: 'Duke', color: 'brown', tier: 'rookie', archetype: 'overconfident bluffer',
@@ -125,6 +138,7 @@ export const CAST: Persona[] = [
     sampleLines: ['Trust me, buddy, I saw the whole thing. It was Saint. Hundred percent.'],
     asCrew: "Makes up confident 'sightings' and doubles down when wrong.",
     asSaboteur: "Lies boldly and loudly, but the lies don't add up.",
+    speech: { kokoro: 'am_michael', speed: 1.05 },
   },
   {
     id: 'pip', name: 'Pip', color: 'grey', tier: 'rookie', archetype: 'easily led follower',
@@ -134,6 +148,7 @@ export const CAST: Persona[] = [
     sampleLines: ['Yeah, what Vex said. Makes sense to me.'],
     asCrew: 'Agrees with the loudest voice and votes with the crowd.',
     asSaboteur: 'Hides by agreeing with everyone and voting with the crowd.',
+    speech: { kokoro: 'af_sarah', speed: 1.05 },
   },
 ];
 

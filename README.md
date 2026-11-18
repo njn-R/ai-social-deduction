@@ -9,14 +9,46 @@ and intelligence level. The full plan is in [PLAN.md](PLAN.md).
 - **Phase 2 (nearly done):** AI players running on a local model through LM Studio, with
   personas, tiers, memory, a code-kept notebook, meeting talk, votes and a post-game reveal.
   Still open: a bigger batch of games to show smarter tiers play better.
-- No graphics yet.
+- **Phase 3 (playable):** play in your browser against 8 AIs.
+
+## Play
+
+Start LM Studio with a model loaded (`lms server start`, then `lms load <model> -c 16384`), then:
+
+```bash
+npm install
+npm run play                             # builds the client, then serves http://localhost:8787
+```
+
+Open http://localhost:8787, pick a name and a role (or random), and press Start.
+
+| Key | What it does |
+|---|---|
+| WASD / arrows | move |
+| E | do the task you're standing at (saboteurs fake theirs) |
+| R | report a body you're near |
+| B | press the emergency button (in Commons) |
+| Q | kill the crew member next to you (saboteurs, when the cooldown is ready) |
+
+In meetings, type in the chat box and press Enter; when voting opens, click **Vote** next to a
+player or **Skip vote**. The AIs leave time to read each line, wait while you're typing, and
+answer what you actually said. When the game ends you get the full reveal: every AI's private
+thoughts next to what it said.
+
+**Voices:** tick "Read AI lines aloud" in the lobby (or use **Mute voices** in a meeting). Each AI
+has its own voice and speaking speed, generated in your browser by
+[Kokoro](https://npmjs.com/package/kokoro-js) on the CPU, so the GPU stays free for the
+language model. The first time, the browser downloads the ~90 MB voice model and then caches it.
+
+Without a model: `npm run play -- --fake` (canned AI lines, for trying the controls).
 
 ## Commands
 
 ```bash
 npm install
 npm test                                 # all tests (no model needed)
-npm run typecheck
+npm run typecheck                        # server and client
+npm run server -- --fake                 # game server only (with `npm run dev:client` for live client reloads)
 ```
 
 Scripted bots (no model):
@@ -46,7 +78,10 @@ whatever LM Studio has loaded.
 ## Layout
 
 ```
-src/engine/          rules and state, no I/O
+client/              the browser game (canvas map and fog of war, HTML HUD, meeting and reveal screens)
+src/server/          game server: one live game, your seat plus 8 AI seats, over a WebSocket
+src/shared/          messages between browser and server
+src/engine/          rules and state, no I/O (also used by the browser for the map)
   game.ts            the authoritative Game: setMove / act / observe / step
   observation.ts     what one player is allowed to know (bots and AIs see only this)
   map/               map format, nav grid (A* pathfinding, line of sight), placeholder map

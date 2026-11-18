@@ -1,11 +1,10 @@
-import { deriveSeed, Game, Rng, STATION_MAP, TICK_RATE, type GameConfig, type GameEvent } from '../engine';
-import { AiAgent } from './agent';
-import { MeetingDirector } from './director';
-import { Journal, type JournalEntry } from './journal';
-import { LlmQueue, type QueueStats } from './llm/queue';
+import { Game, STATION_MAP, TICK_RATE, type GameConfig, type GameEvent } from '../engine';
+import type { AiAgent } from './agent';
+import type { Journal, JournalEntry } from './journal';
+import type { QueueStats } from './llm/queue';
 import type { LlmProvider } from './llm/types';
 import { DEFAULT_TABLE, personaById, type Persona } from './personas';
-import { systemPrompt } from './prompts';
+import { buildAiTable } from './table';
 
 export interface AiGameOptions {
   seed: number;
@@ -38,20 +37,8 @@ export async function runAiGame(o: AiGameOptions): Promise<AiGameReport> {
   const players = personas.map((p) => ({ id: p.id, name: p.name, color: p.color }));
   const game = new Game({ map: STATION_MAP, players, seed: o.seed, config: o.config });
   const mode = o.mode ?? 'virtual';
-  const queue = new LlmQueue(o.provider, { concurrency: o.concurrency ?? 4, mode });
-  const journal = new Journal();
-  if (o.onJournal) journal.onEntry(o.onJournal);
-
-  const names = new Map(players.map((p) => [p.id, p.name]));
-  const system = systemPrompt(game.nav, game.config, players.length);
-  const agents = personas.map(
-    (persona, i) => new AiAgent({ persona, nav: game.nav, config: game.config, queue, journal, system, names, seed: deriveSeed(o.seed, 100 + i) }),
-  );
-  const director = new MeetingDirector(game, new Map(agents.map((a) => [a.id, a])), new Rng(deriveSeed(o.seed, 999)));
-  const apis = agents.map((a) => ({
-    setMove: (dir: Parameters<Game['setMove']>[1]) => game.setMove(a.id, dir),
-    act: (action: Parameters<Game['act']>[1]) => game.act(a.id, action),
-  }));
+  const table = buildAiTable({ game, provider: o.provider, personas, seed: o.seed, concurrency: o.concurrency, mode });
+  if (o.onJournal) table.journal.onEntry(o.onJournal);
 
   if (o.onEvent) {
     const onEvent = o.onEvent;
@@ -61,15 +48,22 @@ export async function runAiGame(o: AiGameOptions): Promise<AiGameReport> {
 
   const started = performance.now();
   while (!game.isOver()) {
-    await queue.sync(game.tick);
-    for (let i = 0; i < agents.length; i++) agents[i].update(game.observe(agents[i].id), apis[i]);
-    director.update();
+    await table.queue.sync(game.tick);
+    table.update();
     game.step();
     if (mode === 'realtime') {
       const wait = started + (game.tick * 1000) / TICK_RATE - performance.now();
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     }
   }
-  await queue.drain();
-  return { game, journal, agents, personas, stats: queue.stats, model: o.model ?? o.provider.name, wallMs: performance.now() - started };
+  await table.queue.drain();
+  return {
+    game,
+    journal: table.journal,
+    agents: table.agents,
+    personas,
+    stats: table.queue.stats,
+    model: o.model ?? o.provider.name,
+    wallMs: performance.now() - started,
+  };
 }

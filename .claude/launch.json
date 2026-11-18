@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "game-fake",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "play", "--", "--fake"],
+      "port": 8787
+    },
+    {
+      "name": "game-fake-quick",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "play", "--", "--fake", "--max-minutes", "0.75"],
+      "port": 8787
+    },
+    {
+      "name": "game",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "play"],
+      "port": 8787
+    }
+  ]
+}

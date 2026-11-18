@@ -1,11 +1,41 @@
-import { TICK_RATE, type ChatMessage, type Game, type MeetingState, type PlayerId, type Rng } from '../engine';
-import type { AiAgent } from './agent';
+import { secToTicks, TICK_RATE, type ChatMessage, type Game, type MeetingState, type PlayerId, type Rng } from '../engine';
+import type { AiAgent, Turn } from './agent';
+
+/** Reading-speed pacing for games with a human at the table. */
+export interface Pacing {
+  /** Pause after every line, in seconds. */
+  baseSec: number;
+  /** Plus reading time for the previous line. */
+  charsPerSec: number;
+  /** Cap on the total pause. */
+  maxSec: number;
+  /** Longest an AI line waits while `hold()` says to (a human typing, a line being spoken). */
+  holdMaxSec: number;
+}
+
+export const HUMAN_PACING: Pacing = { baseSec: 3.5, charsPerSec: 20, maxSec: 10, holdMaxSec: 20 };
 
 export interface DirectorOptions {
   /** Most lines one player gets per meeting. */
   maxTurns: number;
   /** Don't start a new line when less discussion time than this remains. */
   minSecLeft: number;
+  /** Called when an AI starts (true) and stops (false) composing a line, for a "typing..." indicator. */
+  onTyping?: (playerId: PlayerId, typing: boolean) => void;
+  /** Slow the conversation to reading speed (games with a human). Null = post as soon as ready. */
+  pacing?: Pacing | null;
+  /** True while the next line should wait: a human is typing, or a line is still being read aloud. */
+  hold?: () => boolean;
+}
+
+const DEFAULTS: DirectorOptions = { maxTurns: 3, minSecLeft: 3 };
+
+/** A finished AI line held back until the room has had time to read the last one. */
+interface Held {
+  id: PlayerId;
+  turn: Turn;
+  /** Chat length when the line was requested; anything newer is something it didn't hear. */
+  heardUpTo: number;
 }
 
 /**
@@ -18,13 +48,18 @@ export class MeetingDirector {
   private readonly turns = new Map<PlayerId, number>();
   private lineInFlight = false;
   private votesAsked = false;
+  private held: Held | null = null;
+  private holdingSince: number | null = null;
+  private readonly opts: DirectorOptions;
 
   constructor(
     private readonly game: Game,
     private readonly agents: Map<PlayerId, AiAgent>,
     private readonly rng: Rng,
-    private readonly opts: DirectorOptions = { maxTurns: 3, minSecLeft: 3 },
-  ) {}
+    opts: Partial<DirectorOptions> = {},
+  ) {
+    this.opts = { ...DEFAULTS, ...opts };
+  }
 
   update(): void {
     const m = this.game.state.meeting;
@@ -34,12 +69,17 @@ export class MeetingDirector {
       this.turns.clear();
       this.lineInFlight = false;
       this.votesAsked = false;
+      this.dropHeld();
     }
-    if (m.stage === 'result') return;
+    if (m.stage === 'result') {
+      this.dropHeld();
+      return;
+    }
     // The meeting began during this tick (someone reported or pressed the button while
     // acting), so not every agent has seen it yet. Start the conversation next tick.
     if (this.game.tick <= m.startTick) return;
     if (m.stage === 'voting' && !this.votesAsked) this.askForVotes(m);
+    if (this.held && !this.releaseHeld(m)) return;
     if (m.stage !== 'discussion' || this.lineInFlight) return;
     if ((m.stageEndsTick - this.game.tick) / TICK_RATE < this.opts.minSecLeft) return;
 
@@ -47,18 +87,63 @@ export class MeetingDirector {
     if (!pick) return;
     this.lineInFlight = true;
     this.turns.set(pick.id, (this.turns.get(pick.id) ?? 0) + 1);
+    this.opts.onTyping?.(pick.id, true);
     const index = m.index;
+    const heardUpTo = m.chat.length;
     pick.agent.requestTurn(pick.cue, (turn) => {
       this.lineInFlight = false;
       const now = this.game.state.meeting;
-      if (!turn || !turn.say || now?.index !== index || now.stage === 'result') return;
-      this.game.act(pick.id, {
-        type: 'chat',
-        text: turn.say,
-        ...(turn.accuse ? { accuse: turn.accuse } : {}),
-        ...(turn.claims.length > 0 ? { claims: turn.claims } : {}),
-      });
+      if (!turn || !turn.say || now?.index !== index || now.stage === 'result') {
+        this.opts.onTyping?.(pick.id, false);
+        return;
+      }
+      this.held = { id: pick.id, turn, heardUpTo };
+      this.holdingSince = null;
+      if (!this.opts.pacing) this.releaseHeld(now);
     });
+  }
+
+  /**
+   * Post the held line once the room has had time to read the previous one and nobody is
+   * mid-sentence. If a human spoke since the line was written, it missed that, so it's
+   * thrown away and the speaker gets a fresh turn. Returns true when nothing is held anymore.
+   */
+  private releaseHeld(m: MeetingState): boolean {
+    const held = this.held!;
+    const pacing = this.opts.pacing;
+    if (pacing) {
+      const missed = m.chat.slice(held.heardUpTo).some((c) => !this.agents.has(c.playerId));
+      if (missed) {
+        this.turns.set(held.id, Math.max(0, (this.turns.get(held.id) ?? 1) - 1));
+        this.dropHeld();
+        return true;
+      }
+      const last = m.chat.at(-1);
+      if (last) {
+        const pauseSec = Math.min(pacing.maxSec, pacing.baseSec + last.text.length / pacing.charsPerSec);
+        if (this.game.tick - last.tick < secToTicks(pauseSec)) return false;
+      }
+      if (this.opts.hold?.()) {
+        this.holdingSince ??= this.game.tick;
+        if (this.game.tick - this.holdingSince < secToTicks(pacing.holdMaxSec)) return false;
+      }
+    }
+    this.held = null;
+    this.holdingSince = null;
+    this.opts.onTyping?.(held.id, false);
+    this.game.act(held.id, {
+      type: 'chat',
+      text: held.turn.say,
+      ...(held.turn.accuse ? { accuse: held.turn.accuse } : {}),
+      ...(held.turn.claims.length > 0 ? { claims: held.turn.claims } : {}),
+    });
+    return true;
+  }
+
+  private dropHeld(): void {
+    if (this.held) this.opts.onTyping?.(this.held.id, false);
+    this.held = null;
+    this.holdingSince = null;
   }
 
   private askForVotes(m: MeetingState): void {

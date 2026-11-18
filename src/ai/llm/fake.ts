@@ -5,6 +5,8 @@ export interface FakeOptions {
   seed?: number;
   /** Pretend each call took this long (drives game-time accounting in virtual mode). */
   latencyMs?: number;
+  /** Actually wait `latencyMs` before answering (for live play without a model). */
+  realDelay?: boolean;
   /** Override the reply for a request; return undefined to use the default schema filler. */
   respond?: (req: LlmRequest) => unknown;
 }
@@ -26,6 +28,7 @@ export class FakeProvider implements LlmProvider {
   async complete(req: LlmRequest): Promise<LlmResult> {
     this.requests.push(req);
     const json = this.opts.respond?.(req) ?? this.fill(req.schema.schema, '');
+    if (this.opts.realDelay) await new Promise((r) => setTimeout(r, this.opts.latencyMs ?? 2500));
     return { json, raw: JSON.stringify(json), latencyMs: this.opts.latencyMs ?? 2500, model: 'fake' };
   }
 

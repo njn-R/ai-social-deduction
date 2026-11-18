@@ -15,10 +15,11 @@ export function buildReveal(r: AiGameReport, m: GameMetrics): string {
   for (const line of summaryLines(m)) out.push(`- ${line}`);
 
   out.push('', '## Cast', '', '| Player | Tier | Role | Fate |', '|---|---|---|---|');
-  for (const p of r.personas) {
-    const s = g.player(p.id);
+  for (const s of g.players) {
+    const p = r.personas.find((x) => x.id === s.id);
     const fate = s.alive ? 'survived' : s.ejected ? `ejected at ${formatClock(s.diedAtTick!)}` : `killed at ${formatClock(s.diedAtTick!)}`;
-    out.push(`| ${p.name} (${p.archetype}) | ${p.tier} | ${s.role === 'saboteur' ? '**saboteur**' : 'crew'} | ${fate} |`);
+    const who = p ? `${p.name} (${p.archetype})` : `${s.name} (human)`;
+    out.push(`| ${who} | ${p?.tier ?? 'human'} | ${s.role === 'saboteur' ? '**saboteur**' : 'crew'} | ${fate} |`);
   }
 
   // Timeline: events, with each line's private thought underneath.

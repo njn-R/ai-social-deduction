@@ -2,12 +2,12 @@
 
 *Working title: TBD (see Decision 2). Drafted 2026-11-17.*
 
-**Status (2026-11-18):** Phases 0 and 1 done; Phase 2 nearly done. AI-only games run on a local
-model with personas, tiers, memory, the notebook, meeting talk, votes and a post-game reveal.
-Saboteurs now win some AI games (2 of the last 3). The main model is picked (kept as a local
-setting). Still open: showing that smarter tiers play better, which needs a bigger batch of games.
-The map still uses stand-in deep-sea room names until a theme is picked. See
-[README.md](README.md) for commands.
+**Status (2026-11-18):** Phases 0, 1 and 3 done; Phase 2 nearly done. You can play in the browser
+(`npm run play`) against 8 AIs on a local model: walk the station under fog of war, do tasks,
+report bodies, talk and vote in meetings, and read every AI's private thoughts at the end. Still
+open from Phase 2: showing that smarter tiers play better, which needs a bigger batch of games.
+The working title is "Deep Station" and the map uses stand-in deep-sea names until a theme is
+picked. See [README.md](README.md) for how to play.
 
 ## 1. Goal
 
@@ -93,6 +93,10 @@ can read what each AI really believed. That should be one of the most fun parts.
   personas > random. While one line is on screen, it already generates the next speaker's line,
   shown with a typing indicator.
 - You can type at any time. Your message is shown to everyone and they can react to it.
+- With a human at the table (added after the first playtest, where chat moved too fast): each AI
+  line waits for reading time (3.5 s + ~1 s per 20 characters, max 10 s), lines hold while you're
+  typing or while a line is still being spoken (max 20 s), a line written before you spoke is
+  thrown away and rewritten, and discussion runs 120 s instead of 90.
 - Voting: every agent returns a vote and a private reason. Skip is allowed.
 
 ### 4.4 Intelligence tiers
@@ -163,7 +167,7 @@ they trust, so the cast builds rivalries and reputations over time.
 | Part | Choice | Why |
 |---|---|---|
 | Language | TypeScript everywhere | One language; shared types between client and server |
-| Client | Phaser 3 + Vite, maps built in Tiled | Mature 2D engine, runs in the browser, no install |
+| Client | Canvas 2D + HTML panels, built with Vite (Phaser dropped in Phase 3) | The map is simple enough to draw directly, and HTML is far easier for the meeting, chat and reveal screens. Phaser can return for the art pass |
 | Server | Node.js + `ws` | Holds the game state; runs headless AI-only games for testing |
 | LLM | LM Studio local server (default); Claude API via `@anthropic-ai/sdk` (optional) | Free local play on your GPU; Claude only for the optional Mastermind upgrade |
 | Storage | SQLite (JSON files at first) | Persona memory, game history, replays |
@@ -236,9 +240,9 @@ prices, and those calls also skip the local queue.
 | 0. Decide & set up (**done**) | Settle the decisions below; repo, tooling, project skeleton | `npm test` runs (the dev server comes with the client in Phase 3) |
 | 1. Headless engine (**done**) | Map, movement, roles, tasks, kills, bodies, reports, meetings, votes, win checks; simple scripted bots | 100 scripted games finish with valid results |
 | 2. AI agents (text) (**nearly done**) | LM Studio connection + priority queue, perception filter, memory, notebook, tactics + meeting brain, persona cards, tiers, text spectator log, post-game reveal, model bake-off | AI-only games make sense (yes); saboteurs win sometimes (yes); main model picked (yes); smarter tiers win more (not shown yet: needs ~20+ games) |
-| 3. Playable client (**MVP**) | 2D map, movement, fog of war, tasks, kill/report/meeting buttons, meeting chat + voting UI | You can play a full game in the browser against 8 AIs |
+| 3. Playable client (**MVP, done**) | 2D map, movement, fog of war, tasks, kill/report/meeting buttons, meeting chat + voting UI | You can play a full game in the browser against 8 AIs (yes: lobby, play, meetings with typed chat, voting, ghost mode, end screen with the reveal, play again) |
 | 4. Depth | Vents, cameras/admin map, more sabotages, memory between games, difficulty presets, lobby to pick the cast, persona editor | Replay value: the cast feels different game to game |
-| 5. Polish | Art pass, sound, a text-to-speech voice per persona, optional voice input, replays | It feels like a finished game |
+| 5. Polish | Art pass, sound, ~~a text-to-speech voice per persona~~ (done early: Kokoro in the browser; Fish Audio S1-mini to try later for emotion tags), optional voice input, replays | It feels like a finished game |
 
 Building the headless engine and AI-only games first (Phases 1–2) is on purpose. It lets us tune
 the AI quickly and cheaply before any graphics exist, and watching AIs play each other is fun.
@@ -267,7 +271,7 @@ the AI quickly and cheaply before any graphics exist, and watching AIs play each
 | 5 | AI provider | Local (LM Studio) / Claude API / both | **Decided: local LM Studio**; Claude optional for Masterminds |
 | 6 | Main local model | Any model that fits the GPU | **Decided in the Phase 2 bake-off** (best persona voices, no errors); kept in the git-ignored `ai.local.json` |
 | 7 | Claude upgrade for Masterminds | Off / on (~$0.30–0.60 per game) | Off at first; try once local play works |
-| 8 | Meeting input/output | Typed chat / + AI voices (TTS) / + your voice input | Typed chat first, voices in Phase 5 |
+| 8 | Meeting input/output | Typed chat / + AI voices (TTS) / + your voice input | **Decided:** typed chat + AI voices via Kokoro, running in the browser on the CPU (fits beside the language model; Apache 2.0). Fish Audio S1-mini is next to try for emotion tags (non-commercial licence; may not fit on the GPU beside the model). Voice input later |
 | 9 | Your role | Random / always crew / always saboteur / spectator mode | Random, plus spectator mode |
 | 10 | Cast | Fixed hand-made cast / generated each game / your own editor | Hand-made cast of ~12, editor later |
 | 11 | Memory between games | None / reputations and grudges | Yes, in Phase 4 |
