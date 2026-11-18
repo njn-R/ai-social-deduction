@@ -79,6 +79,8 @@ export interface Observation {
   timeSec: number;
   phase: Phase;
   round: number;
+  /** Tick the current round began. Public: everyone sees the meeting end. */
+  roundStartTick: number;
   self: SelfView;
   /** Fellow saboteurs (empty for crew). */
   saboteurTeam: PlayerId[];
@@ -126,6 +128,7 @@ export function buildObservation(game: Game, me: PlayerState): Observation {
     timeSec: ticksToSec(s.tick),
     phase: s.phase,
     round: s.round,
+    roundStartTick: s.roundStartTick,
     self: {
       id: me.id,
       name: me.name,
@@ -155,7 +158,7 @@ export function buildObservation(game: Game, me: PlayerState): Observation {
           stage: m.stage,
           secLeft: Math.max(0, ticksToSec(m.stageEndsTick - s.tick)),
           participants: [...m.participants],
-          chat: m.chat.map((c) => ({ ...c })),
+          chat: m.chat.map((c) => ({ ...c, ...(c.claims ? { claims: c.claims.map((k) => ({ ...k, saw: [...k.saw] })) } : {}) })),
           voted: m.participants.filter((id) => m.votes[id] !== undefined),
           myVote: m.votes[me.id] ?? null,
           result: m.result ? { ...m.result, tally: { ...m.result.tally }, votes: { ...m.result.votes } } : null,

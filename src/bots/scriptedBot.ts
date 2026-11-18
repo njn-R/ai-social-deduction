@@ -3,18 +3,15 @@ import {
   NavGrid,
   Rng,
   secToTicks,
-  TICK_RATE,
   type ChatMessage,
   type GameConfig,
   type MeetingResult,
   type Observation,
   type PlayerId,
-  type Vec2,
-  type VisibleBody,
   type VoteTarget,
 } from '../engine';
 import type { ControlApi, Controller } from './controller';
-import { Navigator } from './navigator';
+import { Reflexes } from './reflexes';
 
 export interface ScriptedBotOptions {
   id: PlayerId;
@@ -24,32 +21,27 @@ export interface ScriptedBotOptions {
 }
 
 /**
- * A simple rule-based player, used to exercise the engine before LLM agents exist.
+ * A simple rule-based player, used to exercise the engine without an LLM.
  *
- * Crew: report bodies it sees, do tasks (nearest first), then wander. Remembers
- * who was standing near a body and who accused whom, and votes on that.
- * Saboteur: fakes tasks, kills when exactly one crew member is in view, then
- * runs to a far room. Sometimes accuses someone at meetings and piles on.
+ * Play comes from the shared Reflexes (tasks, reporting, kill-and-run).
+ * On top of that it remembers who was standing near a body and who accused whom,
+ * and talks and votes from that with canned lines.
  *
- * It only ever reads its own Observation, so it plays by the same rules an LLM agent will.
+ * It only ever reads its own Observation, so it plays by the same rules an LLM agent does.
  */
 export class ScriptedBot implements Controller {
   readonly id: PlayerId;
   private readonly nav: NavGrid;
   private readonly config: GameConfig;
   private readonly rng: Rng;
-  private readonly walker: Navigator;
-
-  private round = 0;
-  private taskTarget: string | null = null;
-  private wanderTarget: Vec2 | null = null;
-  private fleeTarget: Vec2 | null = null;
+  private readonly reflexes: Reflexes;
 
   // Memory (built only from observations).
   private readonly suspicion = new Map<PlayerId, number>();
   private readonly seenBodies = new Set<string>();
   private prevVisible = new Set<PlayerId>();
   private lastArea: string | null = null;
+  private round = 0;
 
   // Per-meeting state.
   private meetingIndex = -1;
@@ -65,31 +57,22 @@ export class ScriptedBot implements Controller {
     this.nav = opts.nav;
     this.config = opts.config;
     this.rng = new Rng(opts.seed);
-    this.walker = new Navigator(opts.nav, opts.config.playerSpeed / TICK_RATE);
+    this.reflexes = new Reflexes(opts.nav, opts.config, this.rng);
   }
 
   update(obs: Observation, api: ControlApi): void {
     if (obs.phase === 'ended') return;
     if (obs.phase === 'meeting') {
-      this.walker.clear();
+      this.reflexes.pause();
       this.inMeeting(obs, api);
       return;
     }
-    if (obs.round !== this.round) this.startRound(obs.round);
+    if (obs.round !== this.round) {
+      this.round = obs.round;
+      this.prevVisible = new Set();
+    }
     this.perceive(obs);
-    if (obs.self.role === 'saboteur') this.playSaboteur(obs, api);
-    else this.playCrew(obs, api);
-  }
-
-  // ── Play ───────────────────────────────────────────────────────────────
-
-  private startRound(round: number): void {
-    this.round = round;
-    this.taskTarget = null;
-    this.wanderTarget = null;
-    this.fleeTarget = null;
-    this.walker.clear();
-    this.prevVisible = new Set();
+    this.reflexes.play(obs, api);
   }
 
   private perceive(obs: Observation): void {
@@ -110,133 +93,6 @@ export class ScriptedBot implements Controller {
       }
     }
     this.prevVisible = new Set(obs.visiblePlayers.filter((v) => v.alive).map((v) => v.id));
-  }
-
-  private playCrew(obs: Observation, api: ControlApi): void {
-    const me = obs.self;
-    if (me.alive) {
-      const body = nearestBody(obs);
-      if (body) {
-        if (dist(me.pos, body.pos) <= this.config.reportRange - 0.3 && api.act({ type: 'report', bodyId: body.id }).ok) return;
-        this.goTo(body.pos, obs, api);
-        return;
-      }
-    }
-    if (me.busy) {
-      api.setMove(null);
-      return;
-    }
-    if (!me.alive && !this.config.ghostsDoTasks) {
-      api.setMove(null);
-      return;
-    }
-    if (this.doTasks(obs, api)) return;
-    if (!me.alive) {
-      api.setMove(null);
-      return;
-    }
-    this.wander(obs, api);
-  }
-
-  private playSaboteur(obs: Observation, api: ControlApi): void {
-    const me = obs.self;
-    if (!me.alive) {
-      api.setMove(null);
-      return;
-    }
-    const team = new Set(obs.saboteurTeam);
-    const crewInView = obs.visiblePlayers.filter((v) => v.alive && !team.has(v.id));
-    const ready = (me.killCooldownSec ?? 1) <= 0;
-
-    // Strike only when exactly one crew member is in view. Saboteurs see further
-    // than crew, so nobody else can be watching.
-    if (ready && crewInView.length === 1) {
-      const target = crewInView[0];
-      if (dist(me.pos, target.pos) <= this.config.killRange - 0.2 && api.act({ type: 'kill', targetId: target.id }).ok) {
-        this.startFleeing(obs);
-        return;
-      }
-      this.goTo(target.pos, obs, api, 0.75);
-      return;
-    }
-
-    if (this.fleeTarget) {
-      if (dist(me.pos, this.fleeTarget) > 0.05 && this.goTo(this.fleeTarget, obs, api)) return;
-      this.fleeTarget = null;
-    }
-    if (me.busy) {
-      api.setMove(null);
-      return;
-    }
-    if (this.doTasks(obs, api)) return;
-    this.wander(obs, api);
-  }
-
-  private startFleeing(obs: Observation): void {
-    const here = obs.self.pos;
-    const rooms = this.nav
-      .rooms()
-      .filter((r) => r.id !== obs.self.areaId)
-      .sort((a, b) => dist(this.nav.areaCenter(b.id), here) - dist(this.nav.areaCenter(a.id), here));
-    const room = this.rng.pick(rooms.slice(0, 3));
-    this.fleeTarget = this.randomPointIn(room.id);
-    this.walker.clear();
-  }
-
-  /** Work through own task list (real for crew, fake for saboteurs). False when there's nothing left. */
-  private doTasks(obs: Observation, api: ControlApi): boolean {
-    const me = obs.self;
-    const todo = me.tasks.filter((t) => !t.done).map((t) => t.stationId);
-    if (todo.length === 0) return false;
-    if (!this.taskTarget || !todo.includes(this.taskTarget)) this.taskTarget = this.nearestStation(me.pos, todo);
-    if (!this.taskTarget) return false;
-
-    const station = this.nav.station(this.taskTarget);
-    if (dist(me.pos, station.pos) <= this.config.taskRange - 0.2) {
-      api.setMove(null);
-      if (!api.act({ type: 'start_task', stationId: this.taskTarget }).ok) this.taskTarget = null;
-      return true;
-    }
-    if (!this.goTo(station.pos, obs, api)) this.taskTarget = null;
-    return true;
-  }
-
-  private wander(obs: Observation, api: ControlApi): void {
-    if (!this.wanderTarget || dist(obs.self.pos, this.wanderTarget) < 0.05) {
-      this.wanderTarget = this.randomPointIn(this.rng.pick(this.nav.rooms()).id);
-    }
-    if (!this.goTo(this.wanderTarget, obs, api)) this.wanderTarget = null;
-  }
-
-  private goTo(goal: Vec2, obs: Observation, api: ControlApi, tolerance = 0.01): boolean {
-    if (!this.walker.setGoal(goal, obs.self.pos, tolerance)) {
-      api.setMove(null);
-      return false;
-    }
-    api.setMove(this.walker.steer(obs.self.pos));
-    return true;
-  }
-
-  private nearestStation(from: Vec2, stationIds: string[]): string | null {
-    let best: string | null = null;
-    let bestLen = Infinity;
-    for (const id of stationIds) {
-      const path = this.nav.findPath(from, this.nav.station(id).pos);
-      const len = path ? NavGrid.pathLength(from, path) : Infinity;
-      if (len < bestLen) {
-        bestLen = len;
-        best = id;
-      }
-    }
-    return best;
-  }
-
-  private randomPointIn(areaId: string): Vec2 {
-    const { x, y, w, h } = this.nav.area(areaId).rect;
-    return {
-      x: x + 1 + this.rng.int(Math.max(1, w - 2)) + 0.5,
-      y: y + 1 + this.rng.int(Math.max(1, h - 2)) + 0.5,
-    };
   }
 
   private bump(id: PlayerId, amount: number): void {
@@ -342,12 +198,4 @@ export class ScriptedBot implements Controller {
   private mostAccused(ids: PlayerId[]): PlayerId {
     return ids.reduce((a, b) => ((this.accusations.get(b) ?? 0) > (this.accusations.get(a) ?? 0) ? b : a));
   }
-}
-
-function nearestBody(obs: Observation): VisibleBody | null {
-  let best: VisibleBody | null = null;
-  for (const b of obs.visibleBodies) {
-    if (!best || dist(obs.self.pos, b.pos) < dist(obs.self.pos, best.pos)) best = b;
-  }
-  return best;
 }

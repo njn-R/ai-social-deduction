@@ -8,7 +8,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "sim": "tsx src/sim/cli.ts"
+    "sim": "tsx src/sim/cli.ts",
+    "llm:check": "tsx src/ai/llmCheck.ts",
+    "ai": "tsx src/ai/cli.ts",
+    "bakeoff": "tsx src/ai/bakeoff.ts",
+    "ai:stats": "tsx src/ai/stats.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

@@ -46,12 +46,22 @@ export interface BodyState {
   tick: number;
 }
 
+/** A structured "I was here and saw these people" statement attached to a chat line. */
+export interface Claim {
+  areaId: string;
+  /** When the speaker says they were there, if they said. */
+  atTick: number | null;
+  saw: PlayerId[];
+}
+
 export interface ChatMessage {
   tick: number;
   playerId: PlayerId;
   text: string;
   /** Optional structured accusation, so bots and the AI notebook can read it. */
   accuse?: PlayerId;
+  /** Optional structured whereabouts claims, checked against sightings by the AI notebook. */
+  claims?: Claim[];
 }
 
 export interface MeetingResult {
@@ -93,6 +103,8 @@ export interface GameState {
   tick: number;
   phase: Phase;
   round: number;
+  /** Tick the current round began (0, then the end of each meeting). */
+  roundStartTick: number;
   players: PlayerState[];
   bodies: BodyState[];
   meeting: MeetingState | null;
@@ -109,7 +121,7 @@ export type Action =
   | { type: 'kill'; targetId: PlayerId }
   | { type: 'report'; bodyId: string }
   | { type: 'call_meeting' }
-  | { type: 'chat'; text: string; accuse?: PlayerId }
+  | { type: 'chat'; text: string; accuse?: PlayerId; claims?: Claim[] }
   | { type: 'vote'; target: VoteTarget };
 
 export type ActionResult = { ok: true } | { ok: false; reason: string };
@@ -123,7 +135,7 @@ export type GameEventBody =
   | { type: 'kill'; killerId: PlayerId; victimId: PlayerId; bodyId: string; pos: Vec2; areaId: string | null }
   | { type: 'meeting_called'; reason: MeetingReason; callerId: PlayerId; victimId: PlayerId | null; bodyAreaId: string | null }
   | { type: 'voting_started' }
-  | { type: 'chat'; playerId: PlayerId; text: string; accuse?: PlayerId }
+  | { type: 'chat'; playerId: PlayerId; text: string; accuse?: PlayerId; claims?: Claim[] }
   | { type: 'vote_cast'; voterId: PlayerId; target: VoteTarget }
   | { type: 'meeting_result'; result: MeetingResult }
   | { type: 'round_started'; round: number }

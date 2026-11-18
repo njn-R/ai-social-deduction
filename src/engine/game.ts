@@ -9,6 +9,7 @@ import type {
   ActionResult,
   BodyState,
   ChatMessage,
+  Claim,
   GameEvent,
   GameEventBody,
   GameResult,
@@ -88,6 +89,7 @@ export class Game {
       tick: 0,
       phase: 'playing',
       round: 1,
+      roundStartTick: 0,
       players,
       bodies: [],
       meeting: null,
@@ -194,7 +196,7 @@ export class Game {
       case 'call_meeting':
         return this.callMeeting(p);
       case 'chat':
-        return this.chat(p, action.text, action.accuse);
+        return this.chat(p, action.text, action.accuse, action.claims);
       case 'vote':
         return this.vote(p, action.target);
     }
@@ -400,7 +402,7 @@ export class Game {
     this.emit({ type: 'meeting_called', reason, callerId: caller.id, victimId: s.meeting.victimId, bodyAreaId: s.meeting.bodyAreaId });
   }
 
-  private chat(p: PlayerState, text: string, accuse?: PlayerId): ActionResult {
+  private chat(p: PlayerState, text: string, accuse?: PlayerId, claims?: Claim[]): ActionResult {
     const s = this.state;
     const m = s.meeting;
     if (s.phase !== 'meeting' || !m) return fail('chat is only open during meetings');
@@ -410,10 +412,20 @@ export class Game {
     if (!clean) return fail('empty message');
     if (clean.length > 300) return fail('message too long (max 300 characters)');
     if (accuse !== undefined && !this.byId.has(accuse)) return fail('unknown accused player');
+    if (claims && claims.length > 3) return fail('at most 3 claims per message');
+    for (const c of claims ?? []) {
+      if (!this.map.areas.some((a) => a.id === c.areaId)) return fail(`unknown area ${c.areaId}`);
+      if (c.atTick !== null && (c.atTick < 0 || c.atTick > s.tick)) return fail('claim time is out of range');
+      if (c.saw.some((id) => !this.byId.has(id))) return fail('claim names an unknown player');
+    }
 
-    const msg: ChatMessage = { tick: s.tick, playerId: p.id, text: clean, ...(accuse ? { accuse } : {}) };
+    const extra = {
+      ...(accuse ? { accuse } : {}),
+      ...(claims && claims.length > 0 ? { claims: claims.map((c) => ({ ...c, saw: [...c.saw] })) } : {}),
+    };
+    const msg: ChatMessage = { tick: s.tick, playerId: p.id, text: clean, ...extra };
     m.chat.push(msg);
-    this.emit({ type: 'chat', playerId: p.id, text: clean, ...(accuse ? { accuse } : {}) });
+    this.emit({ type: 'chat', playerId: p.id, text: clean, ...extra });
     return OK;
   }
 
@@ -491,6 +503,7 @@ export class Game {
 
     s.phase = 'playing';
     s.round++;
+    s.roundStartTick = s.tick;
     s.players.forEach((p, i) => {
       p.pos = { ...this.map.seats[i] };
       p.move = null;

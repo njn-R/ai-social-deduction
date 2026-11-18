@@ -2,10 +2,12 @@
 
 *Working title: TBD (see Decision 2). Drafted 2026-11-17.*
 
-**Status (2026-11-17):** Phases 0 and 1 done. The headless engine, a placeholder map (stand-in
-deep-sea room names until a theme is picked), scripted bots and a simulator all work, and 100 bot
-games run clean. Scripted bots favor the crew (~94% crew wins); balance tuning waits for real AI
-agents in Phase 2. See [README.md](README.md) for commands.
+**Status (2026-11-18):** Phases 0 and 1 done; Phase 2 nearly done. AI-only games run on a local
+model with personas, tiers, memory, the notebook, meeting talk, votes and a post-game reveal.
+Saboteurs now win some AI games (2 of the last 3). The main model is picked (kept as a local
+setting). Still open: showing that smarter tiers play better, which needs a bigger batch of games.
+The map still uses stand-in deep-sea room names until a theme is picked. See
+[README.md](README.md) for commands.
 
 ## 1. Goal
 
@@ -105,7 +107,7 @@ same model guessing from raw memory.
 | **Rookie** | Forgets or blurs events after ~60 s, sometimes mixes up who was who | none | off | Over-explains, obvious tells | Misses ~30% of what's in view |
 | **Average** | Last few events plus a short summary | Own sightings only | off | Basic alibis | Misses ~10% |
 | **Sharp** | Full log of own observations | + alibi table and clashing claims | off | Keeps lies consistent, frames others | Full |
-| **Mastermind** | Full log | + who suspects whom; as saboteur, "safe lies" nobody can disprove | on, when the queue has room | Plans kills around alibis, plays the long game | Full |
+| **Mastermind** | Full log | + who suspects whom; as saboteur, "safe lies" nobody can disprove | on for round plans only (too slow for meeting lines) | Plans kills around alibis, plays the long game | Full |
 
 Optional upgrade: run Masterminds on the Claude API (Sonnet 5.5 or Opus 5.5) for a real jump in
 skill. One setting, small cost per game (section 7).
@@ -149,7 +151,8 @@ they trust, so the cast builds rivalries and reputations over time.
 
 - 9 players (you + 8 AI), 2 saboteurs
 - Original map with ~10 rooms and connecting corridors
-- 5 tasks each (3 short, 2 long); crew also wins when all tasks are done
+- 7 tasks each (4 short of 3 s, 3 long of 10 s); crew also wins when all tasks are done
+  (tuned in Phase 2: ~59% crew / ~42% saboteur wins over 200 scripted games, ~4.7 min games)
 - Kill cooldown 25 s; vision radius smaller for crew than saboteurs; lights sabotage shrinks it more
 - 1 emergency meeting per player; 90 s discussion + 30 s voting; ejections confirm role (toggle)
 - Sabotages: lights + one critical timed sabotage
@@ -183,24 +186,44 @@ offline jobs like drafting persona cards.
 - **One main model, loaded once.** A consumer GPU usually can't hold two mid-size models at once,
   and swapping models mid-game takes seconds. All 8 agents share it; personas and tiers come from
   the prompt and the notebook.
-- **Assume one call at a time.** A mid-size model on a consumer GPU should answer a short call in
-  roughly 2–4 s (to be measured). That's ~15–25 calls a minute for the whole table, so:
-  - one priority queue: meeting speech > urgent events (body found) > round plans > the rest
+- **Measured in Phase 2:** a short structured call takes ~2.5 s, and LM Studio serves up to 4
+  calls in parallel, which roughly triples throughput (4 calls in ~3.5 s). So:
+  - one priority queue with 4 slots: votes > meeting lines > round plans
+  - meeting lines still go one at a time, so each speaker hears the line before
   - everyday tactics run in code (4.2), not the LLM
   - short replies (max ~2 sentences) and small prompts (~2–4K tokens; context set to 8K to save VRAM)
-  - if your LM Studio version supports parallel requests, we turn that on for more headroom
+- **Virtual clock for AI-only games.** A call that took N seconds of wall time is handed over N
+  seconds of *game* time after it started, and the game waits for the model when it must. AI-only
+  games play exactly as they would live, but skip the idle time between calls.
 - **Order prompts for reuse.** Shared parts first (rules, map, meeting chat so far), the agent's
   persona and private memory last. LM Studio can then reuse the shared start from the previous
   call, so each agent only has to process its own tail.
 - **Guaranteed JSON.** LM Studio's structured output (JSON schema) forces every reply into the
   `thoughts` / `say` / `goal` shape, so a small model can't break the format.
-- **Thinking mode costs time.** Off for most calls; on for Masterminds only when the queue has room.
+- **Hidden reasoning costs time.** Reasoning models think before answering, which can use up the
+  whole reply budget. It's switched off (`reasoning_effort: none`) for most calls; Masterminds get
+  `low`.
 
 **Meeting budget check:** 90 s of discussion at ~3 s per line ≈ 25–30 lines, enough for every agent
 to speak about 3 times. Votes use a smaller call (~1–2 s each) during the 30 s vote.
 
-**Model bake-off (Phase 2):** run the same AI-only game seeds with 2–3 candidate models and compare
-speed, role leaks, staying in character, and how often the crew votes out the right player.
+**Model bake-off (Phase 2, done):** 3 local models, the same 2 seeds each. The main model had the
+strongest persona voices and no errors, at ~6 s per call (the thoughts-first replies are long). A
+smaller model reasoned about as well but needed the most video memory, which is tight on a GPU that
+also runs games. A roleplay-tuned model was ~3× faster (~2 s) but flatter in voice, more confused,
+and often stayed quiet. Vote-accuracy differences were within noise at this sample size. Run your
+own with `npm run bakeoff`; results stay in `runs/`, which isn't committed.
+
+**What the first real games taught us (fixed in Phase 2):**
+- Everyone starts at the table, so "I saw you in Commons at 0:00" looked like a contradiction. Memory
+  now ignores the first 7 s of each round, and only claims with a time can be a hard CONFLICT.
+- Hidden reasoning made Mastermind meeting lines take ~27 s or come back empty. It's now only used
+  for round plans, and an empty reply is retried without it.
+- Speakers repeated themselves; each agent now sees its own earlier lines (max 3 per meeting).
+- "Patient" saboteurs waited for one specific victim and almost never struck. Now they wait for a
+  few quiet seconds, then strike anyone alone, and shadow their planned target meanwhile.
+- Prompts reach ~2.6K tokens, so models load with a 16K context (LM Studio may split it between
+  parallel slots).
 
 **Cost:** local play is free. The optional Claude upgrade (2 Masterminds per game, meeting talk
 only, ~24 calls) would be roughly $0.30 (Sonnet 5.5) to $0.60 (Opus 5.5) per game at current
@@ -212,7 +235,7 @@ prices, and those calls also skip the local queue.
 |---|---|---|
 | 0. Decide & set up (**done**) | Settle the decisions below; repo, tooling, project skeleton | `npm test` runs (the dev server comes with the client in Phase 3) |
 | 1. Headless engine (**done**) | Map, movement, roles, tasks, kills, bodies, reports, meetings, votes, win checks; simple scripted bots | 100 scripted games finish with valid results |
-| 2. AI agents (text) | LM Studio connection + priority queue, perception filter, memory, notebook, tactics + meeting brain, persona cards, tiers, text spectator log, post-game reveal, model bake-off | AI-only games make sense; saboteurs win sometimes; smarter tiers win more; main model picked |
+| 2. AI agents (text) (**nearly done**) | LM Studio connection + priority queue, perception filter, memory, notebook, tactics + meeting brain, persona cards, tiers, text spectator log, post-game reveal, model bake-off | AI-only games make sense (yes); saboteurs win sometimes (yes); main model picked (yes); smarter tiers win more (not shown yet: needs ~20+ games) |
 | 3. Playable client (**MVP**) | 2D map, movement, fog of war, tasks, kill/report/meeting buttons, meeting chat + voting UI | You can play a full game in the browser against 8 AIs |
 | 4. Depth | Vents, cameras/admin map, more sabotages, memory between games, difficulty presets, lobby to pick the cast, persona editor | Replay value: the cast feels different game to game |
 | 5. Polish | Art pass, sound, a text-to-speech voice per persona, optional voice input, replays | It feels like a finished game |
@@ -242,7 +265,7 @@ the AI quickly and cheaply before any graphics exist, and watching AIs play each
 | 3 | Tech stack | TypeScript web (Phaser + Node) / Godot + AI sidecar / Python | TypeScript web |
 | 4 | Visual style | Free-roam 2D top-down / room-to-room board / text only | 2D top-down (text-only sim first, for testing) |
 | 5 | AI provider | Local (LM Studio) / Claude API / both | **Decided: local LM Studio**; Claude optional for Masterminds |
-| 6 | Main local model | Any model that fits the GPU | Pick with the Phase 2 bake-off; kept as a local setting, not committed |
+| 6 | Main local model | Any model that fits the GPU | **Decided in the Phase 2 bake-off** (best persona voices, no errors); kept in the git-ignored `ai.local.json` |
 | 7 | Claude upgrade for Masterminds | Off / on (~$0.30–0.60 per game) | Off at first; try once local play works |
 | 8 | Meeting input/output | Typed chat / + AI voices (TTS) / + your voice input | Typed chat first, voices in Phase 5 |
 | 9 | Your role | Random / always crew / always saboteur / spectator mode | Random, plus spectator mode |

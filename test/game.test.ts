@@ -17,12 +17,14 @@ describe('setup', () => {
     expect(new Set([1, 2, 3, 4, 5, 6, 7, 8].map((s) => roles(deal(s)))).size).toBeGreaterThan(1);
   });
 
-  it('gives everyone 2 long and 3 short tasks, no repeats', () => {
-    for (const p of deal(3).players) {
+  it('gives everyone the configured long and short tasks, no repeats', () => {
+    const g = deal(3);
+    const { longTasks, shortTasks } = g.config;
+    for (const p of g.players) {
       const kinds = p.tasks.map((t) => STATION_MAP.stations.find((s) => s.id === t.stationId)!.kind);
-      expect(kinds.filter((k) => k === 'long')).toHaveLength(2);
-      expect(kinds.filter((k) => k === 'short')).toHaveLength(3);
-      expect(new Set(p.tasks.map((t) => t.stationId)).size).toBe(5);
+      expect(kinds.filter((k) => k === 'long')).toHaveLength(longTasks);
+      expect(kinds.filter((k) => k === 'short')).toHaveLength(shortTasks);
+      expect(new Set(p.tasks.map((t) => t.stationId)).size).toBe(longTasks + shortTasks);
     }
   });
 
