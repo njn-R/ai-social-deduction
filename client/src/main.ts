@@ -70,8 +70,10 @@ const start = (name: string, role: RoleChoice) => {
 
 const lobby = new Lobby(start, { on: voicePref, onToggle: toggleVoices, rate: voices.rate, onRate: setRate });
 const hud = new Hud(s);
-const meeting = new MeetingView(s, send);
+const meeting = new MeetingView(s, send, (key) => voices.owns(key));
 meeting.setControls(muteButton);
+voices.onSpoken = (sp) => meeting.addSpoken(sp);
+voices.onLineDone = (key, spoke) => meeting.lineDone(key, spoke);
 voices.onStatus();
 const banner = new Banner();
 const toasts = new Toasts();
@@ -137,6 +139,15 @@ ws.addEventListener('message', (ev) => {
     case 'error':
       toasts.push(`Server error: ${msg.message}`);
       break;
+    case 'taken':
+      // A game was started from another tab or window; this one goes quiet.
+      voices.stop();
+      releaseKeys();
+      s.obs = null;
+      gameOver.close();
+      lobby.setVisible(true);
+      toasts.push('This game moved to another tab or window.');
+      break;
   }
 });
 /** Hand any new AI meeting lines to the voice player (your own lines aren't read back). */
@@ -147,9 +158,9 @@ function speakNewLines(): void {
     spokenMeeting = m.index;
     spokenLines = 0;
   }
-  for (const c of m.chat.slice(spokenLines)) {
-    if (c.playerId !== s.you) voices.say(c.text, s.voices[c.playerId]);
-  }
+  m.chat.slice(spokenLines).forEach((c, i) => {
+    if (c.playerId !== s.you) voices.say(`${m.index}:${spokenLines + i}`, c.text, s.voices[c.playerId]);
+  });
   spokenLines = m.chat.length;
 }
 

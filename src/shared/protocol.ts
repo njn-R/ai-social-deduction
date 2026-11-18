@@ -38,4 +38,6 @@ export type ServerMessage =
   /** A rejected action or other short message for the player. */
   | { type: 'notice'; text: string }
   | { type: 'game_over'; result: GameResult; roles: Record<PlayerId, Role>; reveal: string }
+  /** A new game was started from another tab or window; this one should go quiet. */
+  | { type: 'taken' }
   | { type: 'error'; message: string };

@@ -100,6 +100,8 @@ wss.on('connection', (ws: WebSocket) => {
     }
     if (msg.type === 'start') {
       session?.stop();
+      // Another tab had the game: tell it to go quiet (otherwise two voices talk at once).
+      if (owner && owner !== ws && owner.readyState === owner.OPEN) owner.send(JSON.stringify({ type: 'taken' } satisfies ServerMessage));
       session = new GameSession({
         provider,
         model,

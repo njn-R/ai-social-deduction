@@ -5,6 +5,8 @@ export default defineConfig({
   root: 'client',
   // The voice engine (kokoro-js) is a ~2 MB chunk, loaded only when voices are switched on.
   build: { outDir: '../dist/client', emptyOutDir: true, chunkSizeWarningLimit: 2500 },
+  // The voice engine runs in a module worker (it loads code on demand).
+  worker: { format: 'es' },
   server: {
     port: 5173,
     // Same headers as the game server: multi-threaded WebAssembly for the voice engine.
